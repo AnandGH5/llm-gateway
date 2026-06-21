@@ -29,6 +29,14 @@ class Settings(BaseSettings):
     # Comma-separated list of accepted gateway keys (sent as `Bearer <key>`).
     gateway_api_keys: str = "gw_sk_demo123"
 
+    # --- cache (Phase 2: exact match) ---
+    cache_enabled: bool = True          # master switch (lets you benchmark cache off vs on)
+    cache_ttl_seconds: int = 86400      # how long a cached response lives
+    cache_max_temperature: float = 1.0  # above this we don't cache (caller wants variety)
+
+    # --- infra ---
+    redis_url: str = "redis://localhost:6379/0"
+
     # --- server ---
     host: str = "0.0.0.0"
     port: int = 8000

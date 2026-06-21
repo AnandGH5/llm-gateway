@@ -6,20 +6,27 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      # Inside the compose network Redis is reachable by service name.
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - redis
     restart: unless-stopped
 
     # --- Dev mode (live reload) ------------------------------------------
-    # Uncomment to edit code on the host and have the server reload instantly.
     # volumes:
     #   - ./app:/app/app
     # command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
-  # --- Added in later phases -------------------------------------------------
-  # redis:                      # Phase 2: exact cache, counters, rate-limit buckets
-  #   image: redis:7-alpine
-  #   ports: ["6379:6379"]
-  #
-  # postgres:                   # Phase 3: pgvector semantic cache + usage log
+  redis:
+    image: redis:7-alpine
+    container_name: llm-gateway-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  # --- Added in Phase 3 ------------------------------------------------------
+  # postgres:                   # pgvector semantic cache + usage log
   #   image: pgvector/pgvector:pg16
   #   environment:
   #     POSTGRES_USER: gw
