@@ -50,6 +50,28 @@ def make_cache_key(payload: dict) -> str:
     return EXACT_PREFIX + digest
 
 
+def make_params_hash(payload: dict) -> str:
+    """Hash of just the sampling params (not the prompt).
+
+    Stored alongside the pgvector row so semantic search can be scoped to
+    requests with the same params — a temperature=0 answer must not be served
+    semantically to a temperature=1.2 request.
+    """
+    fp = {
+        "temperature": payload.get("temperature"),
+        "max_tokens": payload.get("max_tokens"),
+        "top_p": payload.get("top_p"),
+    }
+    blob = json.dumps(fp, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:32]
+
+
+def normalized_prompt_text(payload: dict) -> str:
+    """Flatten the conversation into one normalized string to embed and store."""
+    sig = _messages_signature(payload.get("messages", []))
+    return " ".join(f"{m['role']}: {m['content']}" for m in sig)
+
+
 def is_cacheable(payload: dict, max_temperature: float = 1.0) -> bool:
     """Whether this request may be served from / written to the cache.
 

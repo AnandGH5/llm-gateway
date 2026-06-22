@@ -7,10 +7,12 @@ services:
     env_file:
       - .env
     environment:
-      # Inside the compose network Redis is reachable by service name.
+      # Inside the compose network, services are reachable by name.
       REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://gw:gw@postgres:5432/gateway
     depends_on:
       - redis
+      - postgres
     restart: unless-stopped
 
     # --- Dev mode (live reload) ------------------------------------------
@@ -25,11 +27,20 @@ services:
       - "6379:6379"
     restart: unless-stopped
 
-  # --- Added in Phase 3 ------------------------------------------------------
-  # postgres:                   # pgvector semantic cache + usage log
-  #   image: pgvector/pgvector:pg16
-  #   environment:
-  #     POSTGRES_USER: gw
-  #     POSTGRES_PASSWORD: gw
-  #     POSTGRES_DB: gateway
-  #   ports: ["5432:5432"]
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: llm-gateway-postgres
+    environment:
+      POSTGRES_USER: gw
+      POSTGRES_PASSWORD: gw
+      POSTGRES_DB: gateway
+    ports:
+      - "5432:5432"
+    volumes:
+      # Runs once on first boot to create the extension + tables.
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  pgdata:

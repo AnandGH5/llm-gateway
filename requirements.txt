@@ -4,6 +4,13 @@ httpx==0.28.1
 pydantic==2.10.4
 pydantic-settings==2.7.1
 redis==5.2.1
+asyncpg==0.30.0
+pgvector==0.3.6
+
+# --- Heavy: only needed for the semantic cache (Phase 3). ---
+# The gateway runs fine without these — exact cache still works and semantic
+# simply stays off. Installing them pulls in torch (~a few hundred MB).
+sentence-transformers==3.3.1
 
 # --- dev / test ---
 pytest==8.3.4

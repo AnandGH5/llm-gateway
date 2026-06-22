@@ -34,8 +34,15 @@ class Settings(BaseSettings):
     cache_ttl_seconds: int = 86400      # how long a cached response lives
     cache_max_temperature: float = 1.0  # above this we don't cache (caller wants variety)
 
+    # --- semantic cache (Phase 3) ---
+    semantic_cache_enabled: bool = True
+    similarity_threshold: float = 0.92      # cosine sim required to count as a hit
+    embedding_model: str = "all-MiniLM-L6-v2"
+    embedding_dim: int = 384
+
     # --- infra ---
     redis_url: str = "redis://localhost:6379/0"
+    database_url: str = "postgresql://gw:gw@localhost:5432/gateway"
 
     # --- server ---
     host: str = "0.0.0.0"

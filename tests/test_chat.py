@@ -3,6 +3,7 @@ from __future__ import annotations
 import fakeredis.aioredis
 from fastapi.testclient import TestClient
 
+from app.db import get_db_pool
 from app.deps import get_redis
 from app.main import app
 
@@ -15,7 +16,14 @@ async def _fake_redis():
     return _fake
 
 
+# No Postgres in unit/e2e tests: returning None makes the semantic tier degrade
+# to a no-op (it never loads the embedding model), so these stay Phase-2-scoped.
+def _no_pool():
+    return None
+
+
 app.dependency_overrides[get_redis] = _fake_redis
+app.dependency_overrides[get_db_pool] = _no_pool
 
 client = TestClient(app)
 AUTH = {"Authorization": "Bearer gw_sk_demo123"}
