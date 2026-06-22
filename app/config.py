@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     provider_timeout_seconds: float = 30.0
     max_retries: int = 2
+    retry_backoff_base_seconds: float = 0.1   # exponential backoff base
+    retry_backoff_max_seconds: float = 2.0    # backoff ceiling
 
     # --- gateway auth ---
     # Comma-separated list of accepted gateway keys (sent as `Bearer <key>`).
@@ -39,6 +41,11 @@ class Settings(BaseSettings):
     similarity_threshold: float = 0.92      # cosine sim required to count as a hit
     embedding_model: str = "all-MiniLM-L6-v2"
     embedding_dim: int = 384
+
+    # --- rate limiting (Phase 4) ---
+    rate_limit_enabled: bool = True
+    rate_limit_capacity: int = 60           # bucket size = max burst
+    rate_limit_refill_per_sec: float = 1.0  # sustained tokens per second
 
     # --- infra ---
     redis_url: str = "redis://localhost:6379/0"

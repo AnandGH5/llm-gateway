@@ -19,7 +19,9 @@ from ..deps import get_redis
 from ..metering.cost import compute_cost
 from ..metering.usage import Metering
 from ..models import ChatCompletionRequest
-from ..providers.router import get_provider
+from ..providers.base import ProviderBadRequest
+from ..providers.router import AllProvidersFailed, get_router
+from ..ratelimit.limiter import RateLimiter
 
 router = APIRouter()
 
@@ -37,26 +39,43 @@ async def chat_completions(
     pool=Depends(get_db_pool),
     embedder=Depends(get_embedder),
 ):
+    # --- rate limit first (cheapest rejection; applies to streaming too) ---
+    if settings.rate_limit_enabled:
+        limiter = RateLimiter(redis, settings.rate_limit_capacity, settings.rate_limit_refill_per_sec)
+        rl = await limiter.check(api_key)
+        if not rl.allowed:
+            return JSONResponse(
+                status_code=429,
+                content={"error": {"message": "Rate limit exceeded", "type": "rate_limit_error"}},
+                headers={"Retry-After": str(rl.retry_after), "X-RateLimit-Remaining": str(rl.remaining)},
+            )
+
     raw = await request.json()
     parsed = ChatCompletionRequest.model_validate(raw)
     payload = parsed.model_dump(exclude_none=True)
 
-    provider = get_provider()
+    provider_router = get_router()
     metering = Metering(redis)
     model = payload.get("model", "")
 
-    # --- streaming: pure passthrough in v1 (no caching of token streams) ---
+    # --- streaming: passthrough with start-of-stream failover, no caching ---
     if parsed.stream:
         await metering.record_passthrough()
+        try:
+            provider_name, stream_iter = await provider_router.stream(payload)
+        except AllProvidersFailed as e:
+            return JSONResponse(status_code=502, content={"error": {"message": str(e), "type": "provider_error"}})
+        except ProviderBadRequest as e:
+            return JSONResponse(status_code=400, content={"error": {"message": str(e), "type": "invalid_request_error"}})
 
         async def event_stream():
-            async for chunk in provider.stream_chat_completion(payload):
+            async for chunk in stream_iter:
                 yield chunk
 
         return StreamingResponse(
             event_stream(),
             media_type="text/event-stream",
-            headers={"X-Cache": "MISS", "X-Provider": provider.name, "Cache-Control": "no-cache"},
+            headers={"X-Cache": "MISS", "X-Provider": provider_name, "Cache-Control": "no-cache"},
         )
 
     cacheable = settings.cache_enabled and is_cacheable(payload, settings.cache_max_temperature)
@@ -70,7 +89,7 @@ async def chat_completions(
         SemanticCache(pool, embedder, settings.similarity_threshold) if semantic_on else None
     )
 
-    # --- tier 1: exact cache (cheapest — O(1), no embedding) ---
+    # --- tier 1: exact cache (O(1), no embedding) ---
     if cacheable:
         hit = await exact.get(key)
         if hit is not None:
@@ -79,14 +98,10 @@ async def chat_completions(
             await metering.record_hit(total_tokens=in_tok + out_tok, saved_usd=saved, cache_type="exact")
             return JSONResponse(
                 hit,
-                headers={
-                    "X-Cache": "HIT-EXACT",
-                    "X-Provider": provider.name,
-                    "X-Cost-Saved-USD": f"{saved:.6f}",
-                },
+                headers={"X-Cache": "HIT-EXACT", "X-Provider": "cache", "X-Cost-Saved-USD": f"{saved:.6f}"},
             )
 
-    # --- tier 2: semantic cache (embed + nearest neighbor) ---
+    # --- tier 2: semantic cache ---
     if semantic_on:
         shit = await semantic.lookup(prompt_text=prompt_text, model=model, params_hash=params_hash)
         if shit is not None:
@@ -97,24 +112,31 @@ async def chat_completions(
                 shit.response,
                 headers={
                     "X-Cache": "HIT-SEMANTIC",
-                    "X-Provider": provider.name,
+                    "X-Provider": "cache",
                     "X-Cache-Similarity": f"{shit.similarity:.4f}",
                     "X-Cost-Saved-USD": f"{saved:.6f}",
                 },
             )
 
-    # --- miss: forward, then write through to BOTH caches ---
-    result = await provider.chat_completion(payload)
-    if cacheable:
-        await exact.set(key, result)
-    if semantic_on:
-        await semantic.store(prompt_text=prompt_text, model=model, params_hash=params_hash, response=result)
+    # --- miss: route to a provider (with retry + failover), then write through ---
+    try:
+        result = await provider_router.complete(payload)
+    except AllProvidersFailed as e:
+        return JSONResponse(status_code=502, content={"error": {"message": str(e), "type": "provider_error"}})
+    except ProviderBadRequest as e:
+        return JSONResponse(status_code=400, content={"error": {"message": str(e), "type": "invalid_request_error"}})
 
-    in_tok, out_tok = _usage_tokens(result)
+    response = result.response
+    if cacheable:
+        await exact.set(key, response)
+    if semantic_on:
+        await semantic.store(prompt_text=prompt_text, model=model, params_hash=params_hash, response=response)
+
+    in_tok, out_tok = _usage_tokens(response)
     cost = compute_cost(model, in_tok, out_tok)
     await metering.record_miss(total_tokens=in_tok + out_tok, cost_usd=cost)
 
     return JSONResponse(
-        result,
-        headers={"X-Cache": "MISS", "X-Provider": provider.name, "X-Cost-USD": f"{cost:.6f}"},
+        response,
+        headers={"X-Cache": "MISS", "X-Provider": result.provider, "X-Cost-USD": f"{cost:.6f}"},
     )

@@ -22,7 +22,7 @@ async def lifespan(app: FastAPI):
     await close_db()
 
 
-app = FastAPI(title="LLM Gateway", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="LLM Gateway", version="0.4.0", lifespan=lifespan)
 app.include_router(chat_router)
 app.include_router(stats_router)
 
@@ -36,6 +36,6 @@ async def health():
 async def root():
     return {
         "name": "LLM Gateway",
-        "phase": 3,
+        "phase": 4,
         "endpoints": ["/v1/chat/completions", "/stats", "/health"],
     }

@@ -83,3 +83,31 @@ def test_streaming_still_works():
         assert r.headers["x-cache"] == "MISS"
         data = b"".join(r.iter_bytes())
     assert b"[DONE]" in data
+
+
+def test_failover_to_fallback_provider():
+    from app.config import settings as cfg
+
+    old_primary, old_fb = cfg.primary_provider, cfg.fallback_provider
+    cfg.primary_provider = "always_fail"   # primary always errors
+    cfg.fallback_provider = "mock"          # fallback should rescue the request
+    try:
+        r = client.post("/v1/chat/completions", headers=AUTH, json=_body("failover-unique-prompt"))
+        assert r.status_code == 200
+        assert r.headers["x-provider"] == "mock"
+        assert r.json()["choices"][0]["message"]["content"].startswith("[mock]")
+    finally:
+        cfg.primary_provider, cfg.fallback_provider = old_primary, old_fb
+
+
+def test_all_providers_failing_returns_502():
+    from app.config import settings as cfg
+
+    old_primary, old_fb = cfg.primary_provider, cfg.fallback_provider
+    cfg.primary_provider = "always_fail"
+    cfg.fallback_provider = None
+    try:
+        r = client.post("/v1/chat/completions", headers=AUTH, json=_body("all-fail-unique-prompt"))
+        assert r.status_code == 502
+    finally:
+        cfg.primary_provider, cfg.fallback_provider = old_primary, old_fb

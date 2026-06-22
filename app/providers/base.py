@@ -23,3 +23,16 @@ class Provider(ABC):
     def stream_chat_completion(self, payload: dict) -> AsyncIterator[bytes]:
         """Yield raw SSE bytes in OpenAI streaming format (``data: {...}\\n\\n``)."""
         raise NotImplementedError
+
+
+class ProviderError(Exception):
+    """Retryable upstream failure: 5xx, 429, connection error, missing key."""
+
+
+class ProviderTimeout(ProviderError):
+    """Upstream timed out (retryable)."""
+
+
+class ProviderBadRequest(Exception):
+    """Upstream rejected the request (4xx). NOT retryable — propagate to caller,
+    since retrying or failing over won't fix a malformed request."""

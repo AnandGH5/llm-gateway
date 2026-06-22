@@ -5,18 +5,20 @@ client at this instead of the provider and it forwards the request. On top of th
 caches responses (both identical and *similar* prompts) so repeated calls are served
 instantly and for free, and it tracks cost so you can see what the cache saves.
 
-Phases 1–3 are done. What's left is rate limiting, provider failover, and a dashboard.
+Phases 1–4 are done. What's left is the observability dashboard.
 
 ## What's here so far
 
 - `POST /v1/chat/completions` in the normal OpenAI format
-- a mock provider so you can run it with no API key, plus a real openai provider
+- mock / openai / anthropic providers (all normalized to the OpenAI shape)
 - streaming works (`"stream": true`)
 - **exact cache** (Redis) — identical prompts served in single-digit ms
 - **semantic cache** (pgvector) — paraphrases hit too, e.g. "Tell me France's capital"
   matches "What's the capital of France?"
+- **rate limiting** — per-key token bucket, atomic in Redis, 429 + `Retry-After`
+- **failover** — retry with backoff, then fall back to a second provider
 - cost metering + `/stats` (hit rate, cost saved vs spent, tokens)
-- `X-Cache` (`HIT-EXACT` / `HIT-SEMANTIC` / `MISS`), `X-Cache-Similarity`, `X-Cost-Saved-USD`
+- `X-Cache`, `X-Cache-Similarity`, `X-Cost-Saved-USD`, `X-RateLimit-Remaining`
 - bearer key auth
 - Docker + compose (gateway + redis + postgres/pgvector)
 
@@ -85,6 +87,23 @@ OPENAI_API_KEY=sk-...
 hit. Lower = more hits but more risk of a wrong answer; higher = safer but fewer hits. Every
 lookup logs its best similarity so you can pick a value from real traffic.
 
+## Rate limiting and failover
+
+Each API key gets a token bucket (default: 60 burst, 1/sec sustained). Burst past it and you
+get a `429` with `Retry-After`. Tune with `RATE_LIMIT_CAPACITY` / `RATE_LIMIT_REFILL_PER_SEC`,
+or turn it off with `RATE_LIMIT_ENABLED=false`.
+
+Set a `FALLBACK_PROVIDER` to enable failover: if the primary errors or times out, the request
+is retried with backoff and then sent to the fallback (which can be a different vendor, since
+responses are normalized to the OpenAI shape). The `X-Provider` header shows which one served.
+
+```bash
+PRIMARY_PROVIDER=openai
+FALLBACK_PROVIDER=anthropic
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
 ## Running without Docker
 
 You'll want Redis and Postgres (with pgvector) available, but the gateway degrades
@@ -120,7 +139,8 @@ app/
   auth/              bearer key check
   cache/             keys.py, exact.py (Redis), embeddings.py, semantic.py (pgvector)
   metering/          pricing.py, cost.py, usage.py (redis counters)
-  providers/         mock, openai, and the router that picks one
+  providers/         mock, openai, anthropic, and the router (retry + failover)
+  ratelimit/         token_bucket.lua + limiter.py (atomic token bucket)
 db/init.sql          pgvector extension + tables
 tests/
 docs/                phase write-ups
@@ -128,5 +148,4 @@ docs/                phase write-ups
 
 ## TODO
 
-- rate limiting (token bucket) and provider failover
-- a small stats dashboard
+- observability dashboard (`/metrics` for Prometheus + a polling `dashboard/index.html`)
