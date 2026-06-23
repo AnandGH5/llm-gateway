@@ -201,6 +201,35 @@ tests/
 docs/                phase write-ups
 ```
 
+## Benchmark results
+
+Run against **Google Gemini** (`gemini` via the OpenAI-compatible endpoint) with a
+realistic workload of 100 requests (40% exact repeats, 20% paraphrases, 40% unique),
+at concurrency 1:
+
+| Metric | Result |
+|---|---|
+| Cache hit rate | **81%** (23 exact, 58 semantic) |
+| Cost reduction | **82.4%** ($0.0212 saved vs $0.0045 spent) |
+| p95 latency — cache hit | **44.5 ms** |
+| p95 latency — cache miss | **2381.7 ms** |
+
+Latency by path (p50 / p95 / p99):
+
+| Path | Count | p50 | p95 | p99 |
+|---|--:|--:|--:|--:|
+| Cache HIT (all) | 81 | 34.9 ms | 44.5 ms | 50.3 ms |
+| &nbsp;&nbsp;exact | 23 | 10.3 ms | 11.6 ms | 12.8 ms |
+| &nbsp;&nbsp;semantic | 58 | 37.3 ms | 45.0 ms | 50.3 ms |
+| Cache MISS | 19 | 1434.3 ms | 2381.7 ms | 2978.3 ms |
+
+The semantic tier did most of the work here (58 of 81 hits came from paraphrased prompts,
+not exact repeats), and a cache hit returned **~50× faster** than a miss to the live model.
+
+### Live dashboard
+
+![LLM Gateway dashboard showing hit rate, cost saved, and latency](images/dashboard.png)
+
 ## What I'd do next
 
 - streaming-aware caching, multi-tenancy / per-key quotas, PII redaction before cache writes

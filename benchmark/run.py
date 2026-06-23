@@ -88,7 +88,7 @@ async def _send(client: httpx.AsyncClient, url: str, key: str, prompt: str):
         resp = await client.post(
             url,
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-            json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}]},
+            json={"model": "gemini-3.1-flash-lite", "messages": [{"role": "user", "content": prompt}]},
         )
         ms = (time.perf_counter() - t0) * 1000.0
         return resp.status_code, resp.headers.get("x-cache", "MISS"), ms
