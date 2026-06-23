@@ -7,15 +7,16 @@ services:
     env_file:
       - .env
     environment:
-      # Inside the compose network, services are reachable by name.
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql://gw:gw@postgres:5432/gateway
+      # For benchmarking the cache contrast, give the mock provider a fake delay:
+      # MOCK_LATENCY_MS: "600"
     depends_on:
       - redis
       - postgres
     restart: unless-stopped
 
-    # --- Dev mode (live reload) ------------------------------------------
+    # --- Dev mode (live reload, no rebuild on code changes) --------------
     # volumes:
     #   - ./app:/app/app
     # command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
@@ -37,10 +38,26 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      # Runs once on first boot to create the extension + tables.
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - pgdata:/var/lib/postgresql/data
     restart: unless-stopped
+
+  # --- Optional monitoring stack (uncomment to enable) -----------------------
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   container_name: llm-gateway-prometheus
+  #   volumes:
+  #     - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+  #   ports: ["9090:9090"]
+  #   depends_on: [gateway]
+  #
+  # grafana:
+  #   image: grafana/grafana:latest
+  #   container_name: llm-gateway-grafana
+  #   environment:
+  #     GF_SECURITY_ADMIN_PASSWORD: admin
+  #   ports: ["3000:3000"]
+  #   depends_on: [prometheus]
 
 volumes:
   pgdata:

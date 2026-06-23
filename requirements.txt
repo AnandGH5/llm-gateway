@@ -6,6 +6,7 @@ pydantic-settings==2.7.1
 redis==5.2.1
 asyncpg==0.30.0
 pgvector==0.3.6
+prometheus-client==0.21.1
 
 # --- Heavy: only needed for the semantic cache (Phase 3). ---
 # The gateway runs fine without these — exact cache still works and semantic

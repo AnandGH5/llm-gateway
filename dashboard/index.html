@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LLM Gateway — Live Metrics</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #21262d;
+    --text: #e6edf3; --muted: #8b949e; --accent: #2f81f7;
+    --green: #3fb950; --amber: #d29922; --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 24px 28px; border-bottom: 1px solid var(--border);
+           display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+  header h1 span { color: var(--muted); font-weight: 400; }
+  .status { font-size: 13px; color: var(--muted); font-family: var(--mono); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+         background: var(--green); margin-right: 6px; vertical-align: middle;
+         animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+  main { padding: 28px; max-width: 1100px; margin: 0 auto; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; }
+  .card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+  .card .value { font-size: 30px; font-weight: 600; margin-top: 8px; font-family: var(--mono); }
+  .card .sub { font-size: 12px; color: var(--muted); margin-top: 4px; font-family: var(--mono); }
+  .value.green { color: var(--green); } .value.accent { color: var(--accent); } .value.amber { color: var(--amber); }
+  .chart-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; margin-top: 16px; }
+  .chart-wrap .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 12px; }
+  canvas { width: 100%; height: 180px; display: block; }
+  footer { color: var(--muted); font-size: 12px; text-align: center; padding: 20px; font-family: var(--mono); }
+</style>
+</head>
+<body>
+<header>
+  <h1>LLM Gateway <span>— live metrics</span></h1>
+  <div class="status"><span class="dot"></span><span id="status">connecting…</span></div>
+</header>
+
+<main>
+  <div class="grid">
+    <div class="card"><div class="label">Hit rate</div><div class="value green" id="hitRate">—</div><div class="sub" id="hitBreak">exact — · semantic —</div></div>
+    <div class="card"><div class="label">Cost saved</div><div class="value accent" id="costSaved">—</div><div class="sub" id="costRed">— % reduction</div></div>
+    <div class="card"><div class="label">Requests</div><div class="value" id="requests">—</div><div class="sub" id="misses">— misses</div></div>
+    <div class="card"><div class="label">Throughput</div><div class="value" id="rps">—</div><div class="sub">req / sec</div></div>
+    <div class="card"><div class="label">p95 latency</div><div class="value amber" id="p95">—</div><div class="sub" id="pLat">p50 — · p99 —</div></div>
+    <div class="card"><div class="label">Tokens</div><div class="value" id="tokens">—</div><div class="sub">processed</div></div>
+  </div>
+
+  <div class="chart-wrap">
+    <div class="label">Hit rate over time</div>
+    <canvas id="chart" width="1040" height="180"></canvas>
+  </div>
+</main>
+
+<footer>polling <code>/stats</code> every 2s · open this while running <code>benchmark/run.py</code> to watch it move</footer>
+
+<script>
+const history = [];          // hit-rate samples (0..1)
+const MAX_POINTS = 120;
+
+function fmtUsd(n) { return "$" + (n || 0).toFixed(n < 1 ? 4 : 2); }
+function fmtInt(n) { return (n || 0).toLocaleString(); }
+
+async function poll() {
+  try {
+    const r = await fetch("/stats", { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const s = await r.json();
+
+    document.getElementById("hitRate").textContent = (s.hit_rate * 100).toFixed(1) + "%";
+    document.getElementById("hitBreak").textContent =
+      "exact " + s.hits.exact + " · semantic " + s.hits.semantic;
+    document.getElementById("costSaved").textContent = fmtUsd(s.cost_saved_usd);
+    document.getElementById("costRed").textContent = s.cost_reduction_pct.toFixed(1) + "% reduction";
+    document.getElementById("requests").textContent = fmtInt(s.requests_total);
+    document.getElementById("misses").textContent = fmtInt(s.misses_total) + " misses";
+    document.getElementById("rps").textContent = (s.rps || 0).toFixed(1);
+    document.getElementById("p95").textContent = (s.latency_ms.p95).toFixed(0) + " ms";
+    document.getElementById("pLat").textContent =
+      "p50 " + s.latency_ms.p50.toFixed(0) + " · p99 " + s.latency_ms.p99.toFixed(0);
+    document.getElementById("tokens").textContent = fmtInt(s.tokens_total);
+
+    history.push(s.hit_rate);
+    if (history.length > MAX_POINTS) history.shift();
+    draw();
+
+    const now = new Date().toLocaleTimeString();
+    document.getElementById("status").textContent = "live · updated " + now;
+  } catch (e) {
+    document.getElementById("status").textContent = "waiting for gateway… (" + e.message + ")";
+  }
+}
+
+function draw() {
+  const c = document.getElementById("chart");
+  const ctx = c.getContext("2d");
+  const W = c.width, H = c.height, pad = 24;
+  ctx.clearRect(0, 0, W, H);
+
+  // gridlines at 0/25/50/75/100%
+  ctx.strokeStyle = "#21262d"; ctx.lineWidth = 1; ctx.fillStyle = "#8b949e"; ctx.font = "11px monospace";
+  for (let i = 0; i <= 4; i++) {
+    const y = pad + (H - 2 * pad) * (i / 4);
+    ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W - pad, y); ctx.stroke();
+    ctx.fillText((100 - i * 25) + "%", 2, y + 3);
+  }
+  if (history.length < 2) return;
+
+  const stepX = (W - 2 * pad) / (MAX_POINTS - 1);
+  const yFor = v => pad + (H - 2 * pad) * (1 - v);
+
+  // area + line
+  ctx.beginPath();
+  history.forEach((v, i) => { const x = pad + i * stepX, y = yFor(v); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+  ctx.strokeStyle = "#3fb950"; ctx.lineWidth = 2; ctx.stroke();
+  ctx.lineTo(pad + (history.length - 1) * stepX, H - pad); ctx.lineTo(pad, H - pad); ctx.closePath();
+  ctx.fillStyle = "rgba(63,185,80,0.10)"; ctx.fill();
+}
+
+poll();
+setInterval(poll, 2000);
+</script>
+</body>
+</html>

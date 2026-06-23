@@ -16,6 +16,7 @@ from ..cache.semantic import SemanticCache
 from ..config import settings
 from ..db import get_db_pool
 from ..deps import get_redis
+from .. import metrics as M
 from ..metering.cost import compute_cost
 from ..metering.usage import Metering
 from ..models import ChatCompletionRequest
@@ -39,11 +40,14 @@ async def chat_completions(
     pool=Depends(get_db_pool),
     embedder=Depends(get_embedder),
 ):
+    request.state.redis = redis  # let the metrics middleware reuse this client
+
     # --- rate limit first (cheapest rejection; applies to streaming too) ---
     if settings.rate_limit_enabled:
         limiter = RateLimiter(redis, settings.rate_limit_capacity, settings.rate_limit_refill_per_sec)
         rl = await limiter.check(api_key)
         if not rl.allowed:
+            M.record_rate_limited()
             return JSONResponse(
                 status_code=429,
                 content={"error": {"message": "Rate limit exceeded", "type": "rate_limit_error"}},
@@ -96,6 +100,7 @@ async def chat_completions(
             in_tok, out_tok = _usage_tokens(hit)
             saved = compute_cost(model, in_tok, out_tok)
             await metering.record_hit(total_tokens=in_tok + out_tok, saved_usd=saved, cache_type="exact")
+            M.record_hit("exact", saved)
             return JSONResponse(
                 hit,
                 headers={"X-Cache": "HIT-EXACT", "X-Provider": "cache", "X-Cost-Saved-USD": f"{saved:.6f}"},
@@ -108,6 +113,7 @@ async def chat_completions(
             in_tok, out_tok = _usage_tokens(shit.response)
             saved = compute_cost(model, in_tok, out_tok)
             await metering.record_hit(total_tokens=in_tok + out_tok, saved_usd=saved, cache_type="semantic")
+            M.record_hit("semantic", saved)
             return JSONResponse(
                 shit.response,
                 headers={
@@ -132,9 +138,13 @@ async def chat_completions(
     if semantic_on:
         await semantic.store(prompt_text=prompt_text, model=model, params_hash=params_hash, response=response)
 
+    if result.provider != settings.primary_provider:
+        M.record_failover()
+
     in_tok, out_tok = _usage_tokens(response)
     cost = compute_cost(model, in_tok, out_tok)
     await metering.record_miss(total_tokens=in_tok + out_tok, cost_usd=cost)
+    M.record_miss(cost)
 
     return JSONResponse(
         response,

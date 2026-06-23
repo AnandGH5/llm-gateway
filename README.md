@@ -5,7 +5,7 @@ client at this instead of the provider and it forwards the request. On top of th
 caches responses (both identical and *similar* prompts) so repeated calls are served
 instantly and for free, and it tracks cost so you can see what the cache saves.
 
-Phases 1–4 are done. What's left is the observability dashboard.
+All five phases are done: transparent proxy, exact + semantic caching, rate limiting + failover, and observability with a live dashboard and benchmark.
 
 ## What's here so far
 
@@ -19,8 +19,9 @@ Phases 1–4 are done. What's left is the observability dashboard.
 - **failover** — retry with backoff, then fall back to a second provider
 - cost metering + `/stats` (hit rate, cost saved vs spent, tokens)
 - `X-Cache`, `X-Cache-Similarity`, `X-Cost-Saved-USD`, `X-RateLimit-Remaining`
+- **observability** — Prometheus `/metrics`, a live `/dashboard`, and a benchmark harness
 - bearer key auth
-- Docker + compose (gateway + redis + postgres/pgvector)
+- Docker + compose (gateway + redis + postgres/pgvector, optional prometheus + grafana)
 
 ## Running it
 
@@ -104,6 +105,39 @@ OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
+## Live dashboard
+
+Once it's running, open <http://localhost:8000/dashboard/> for a live view (hit rate, cost
+saved, RPS, p95 latency) that updates every 2 seconds. `/metrics` exposes the same data in
+Prometheus format for Grafana.
+
+## Benchmark
+
+The benchmark drives a realistic mix (40% exact repeats, 20% paraphrases, 40% unique) so it
+exercises both cache tiers like real traffic. Give the mock provider a fake delay so the
+cached-vs-uncached contrast is visible, then run it:
+
+```bash
+# in docker-compose.yml, set MOCK_LATENCY_MS: "600" on the gateway, then:
+docker compose up --build
+
+# in another terminal (with the .venv active for httpx):
+python benchmark/run.py --n 300 --concurrency 10
+```
+
+It prints hit rate, the latency split (hit vs miss), cost reduction, and the 429 count from a
+burst phase. Open the dashboard while it runs to watch the numbers move.
+
+## Results
+
+Fill this in with your own run (the numbers below are placeholders):
+
+| Config | Hit rate | Cost reduction | p95 (hit / miss) |
+|--------|---------:|---------------:|-----------------:|
+| Cache off | 0% | 0% | ~600 ms |
+| Exact only | … | … | … |
+| Exact + semantic | … | … | ~5 ms / ~600 ms |
+
 ## Running without Docker
 
 You'll want Redis and Postgres (with pgvector) available, but the gateway degrades
@@ -141,11 +175,18 @@ app/
   metering/          pricing.py, cost.py, usage.py (redis counters)
   providers/         mock, openai, anthropic, and the router (retry + failover)
   ratelimit/         token_bucket.lua + limiter.py (atomic token bucket)
+  metrics.py         prometheus counters + latency histogram
+  middleware.py      ASGI latency middleware
+  api/metrics.py     /metrics (prometheus)
 db/init.sql          pgvector extension + tables
+dashboard/           live metrics dashboard (static)
+benchmark/run.py     load + workload harness
+monitoring/          prometheus scrape config
 tests/
 docs/                phase write-ups
 ```
 
-## TODO
+## What I'd do next
 
-- observability dashboard (`/metrics` for Prometheus + a polling `dashboard/index.html`)
+- streaming-aware caching, multi-tenancy / per-key quotas, PII redaction before cache writes
+- Kubernetes manifests (Deployment + Service + HPA + readiness/liveness probes)

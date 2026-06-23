@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
 from typing import AsyncIterator
 
+from ..config import settings
 from .base import Provider
 
 
@@ -36,6 +38,8 @@ class MockProvider(Provider):
     name = "mock"
 
     async def chat_completion(self, payload: dict) -> dict:
+        if settings.mock_latency_ms:
+            await asyncio.sleep(settings.mock_latency_ms / 1000.0)
         answer = _mock_answer(payload)
         prompt_tokens = max(1, len(_last_user_message(payload).split()))
         completion_tokens = max(1, len(answer.split()))
@@ -59,6 +63,8 @@ class MockProvider(Provider):
         }
 
     async def stream_chat_completion(self, payload: dict) -> AsyncIterator[bytes]:
+        if settings.mock_latency_ms:
+            await asyncio.sleep(settings.mock_latency_ms / 1000.0)
         cid = _completion_id()
         created = int(time.time())
         model = payload.get("model", "mock-model")

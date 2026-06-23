@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     max_retries: int = 2
     retry_backoff_base_seconds: float = 0.1   # exponential backoff base
     retry_backoff_max_seconds: float = 2.0    # backoff ceiling
+    mock_latency_ms: int = 0                   # simulated provider latency (benchmarks)
 
     # --- gateway auth ---
     # Comma-separated list of accepted gateway keys (sent as `Bearer <key>`).
