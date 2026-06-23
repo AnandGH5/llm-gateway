@@ -1,0 +1,28 @@
+# Render Blueprint — deploys the gateway as a Docker web service.
+# Light demo (semantic OFF): only needs REDIS_URL (Upstash). No Postgres required.
+# For the full build, set DATABASE_URL and flip SEMANTIC_CACHE_ENABLED=true, and
+# bump `plan` to one with >= 1 GB RAM (torch needs the memory).
+services:
+  - type: web
+    name: llm-gateway
+    runtime: docker
+    plan: free                 # free = spins down when idle; "starter" ($7) = always on
+    healthCheckPath: /health
+    envVars:
+      - key: PRIMARY_PROVIDER
+        value: mock            # mock = safe public demo (no real key to burn)
+      - key: GATEWAY_API_KEYS
+        value: gw_sk_demo123   # CHANGE THIS
+      - key: SEMANTIC_CACHE_ENABLED
+        value: "false"         # keep off on small instances (no torch RAM)
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+      - key: RATE_LIMIT_CAPACITY
+        value: "60"
+      - key: RATE_LIMIT_REFILL_PER_SEC
+        value: "1"
+      - key: REDIS_URL
+        sync: false            # set in the dashboard: Upstash rediss:// URL
+      # --- full mode only ---
+      # - key: DATABASE_URL
+      #   sync: false          # Neon postgresql:// URL
