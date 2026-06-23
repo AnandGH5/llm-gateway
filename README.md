@@ -230,7 +230,3 @@ not exact repeats), and a cache hit returned **~50× faster** than a miss to the
 
 ![LLM Gateway dashboard showing hit rate, cost saved, and latency](images/dashboard.png)
 
-## What I'd do next
-
-- streaming-aware caching, multi-tenancy / per-key quotas, PII redaction before cache writes
-- Kubernetes manifests (Deployment + Service + HPA + readiness/liveness probes)
