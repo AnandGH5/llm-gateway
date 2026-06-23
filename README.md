@@ -7,6 +7,21 @@ instantly and for free, and it tracks cost so you can see what the cache saves.
 
 All five phases are done: transparent proxy, exact + semantic caching, rate limiting + failover, and observability with a live dashboard and benchmark.
 
+## Live demo
+
+**https://llm-gateway-hh2p.onrender.com/**
+
+Try it with the public demo key below. This key only reaches the **mock** provider and is rate-limited, so it's safe to share — real provider keys are never committed and load from environment variables.
+
+```bash
+curl -i https://llm-gateway-hh2p.onrender.com/v1/chat/completions \
+  -H "Authorization: Bearer llm_demo_777" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"What is the capital of France?"}]}'
+```
+
+Run it twice and watch the second response return `X-Cache: HIT-EXACT`. Semantic caching is disabled in the hosted demo (it needs ~1 GB RAM for the local embedding model); [run it locally](#running-it) to see paraphrases hit the cache too.
+
 ## What's here so far
 
 - `POST /v1/chat/completions` in the normal OpenAI format
