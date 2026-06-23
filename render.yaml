@@ -12,7 +12,7 @@ services:
       - key: PRIMARY_PROVIDER
         value: mock            # mock = safe public demo (no real key to burn)
       - key: GATEWAY_API_KEYS
-        value: gw_sk_demo123   # CHANGE THIS
+        sync: false            # set in the dashboard
       - key: SEMANTIC_CACHE_ENABLED
         value: "false"         # keep off on small instances (no torch RAM)
       - key: RATE_LIMIT_ENABLED
