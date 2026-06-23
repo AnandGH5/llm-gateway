@@ -198,7 +198,7 @@ dashboard/           live metrics dashboard (static)
 benchmark/run.py     load + workload harness
 monitoring/          prometheus scrape config
 tests/
-docs/                phase write-ups
+images/              placeholder for all images
 ```
 
 ## Benchmark results
